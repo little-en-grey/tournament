@@ -4,23 +4,12 @@ module.exports = {
         .setName('get')
         .setDescription('対戦カードを取得')
         .addStringOption(option =>
-            option.setName('tnm_block')
-                .setDescription('対戦表のブロック')
-                .setRequired(true)
-                .addChoices(
-                    {name:'A', value:'A'},
-                    {name:'B', value:'B'},
-                    {name:'C', value:'C'},
-                    {name:'D', value:'D'}
-                ))
-        .addIntegerOption(option =>
-            option.setName('round')
-                .setDescription('何回戦')
-				.setRequired(true))
-        .addIntegerOption(option =>
-            option.setName('match')
-                .setDescription('トーナメント表の上から何個目の試合')
-                .setRequired(true)),
+            option.setName('team_a')
+                .setDescription('取得したいチーム番号①')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('team_b')
+                .setDescription('取得したいチーム番号②')),
     async execute(interaction) {
     }
 }

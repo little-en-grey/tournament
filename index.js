@@ -13,6 +13,7 @@ dotenv.config();
 // 申請リストセット
 globalThis.TOURNAMENT_ID = [];
 globalThis.APPLICAATION_LIST = [];
+globalThis.headerValues = [];
 
 // コマンド取得
 const commands = {}
@@ -56,13 +57,42 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
 
         } else if (interaction.commandName === "get") {
-            const round = interaction.options.getInteger('round');
-            const match = interaction.options.getInteger('match');
-            const tnmBlock = interaction.options.getString('tnm_block');
+            const teamA = interaction.options.getString('team_a');
+            const teamB = interaction.options.getString('team_b') ?? null;
 
-            await getMatchCard(tnmBlock, round, match).then( function(value) {
+            var pattern = /^([A-D])([1-9]|1[0-6])-[1-4]$/;
+            if(!teamA.match(pattern)) {
+                await interaction.reply({
+                    content: 'チームAの指定が間違っています',
+                    ephemeral: true,
+                });
+                return;
+            }
+
+            if(teamB != null && !teamB.match(pattern)) {
+                await interaction.reply({
+                    content: 'チームBの指定が間違っています',
+                    ephemeral: true,
+                });
+                return;
+            }
+
+            if(teamB != null) {
+                var blockA = teamA.substring(0,1);
+                var blockB = teamB.substring(0,1);
+
+                if(blockA !== blockB) {
+                    await interaction.reply({
+                        content: 'チームAとチームBの指定ブロックは統一してください',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+            }
+
+            await getMatchCard(teamA, teamB).then( function(value) {
                 // 非同期処理が成功した場合
-                interaction.reply({ content: value, ephemeral: true  });
+                interaction.reply(value);
             });
         }
         await command.execute(interaction);
@@ -81,44 +111,51 @@ client.on(Events.MessageCreate, message => {
     // 指定のサーバー以外では動作しないようにする
     if (message.guild.id !== process.env.SERVER_TOKEN) return;
 
-    console.log(globalThis.APPLICAATION_LIST.length);
-
     try {
-        if(globalThis.APPLICAATION_LIST.length == 0) {
-            setAppSheet(process.env.APPLICATION_SHEET_ID).then( function(value) {
-                console.log(value);
-            });
+        if(message.content == 'set list') {
+            // 申請リストをセット
+            if(APPLICAATION_LIST.length == 0) {
+                setAppSheet(process.env.APPLICATION_SHEET_ID).then( function(value) {
+                    console.log(value);
+                    message.channel.send(value);
+                });
+                message.channel.send('seted list.');
+            }
+            console.log(TOURNAMENT_ID);
+
+            if(!TOURNAMENT_ID['A']) {
+                if(process.env.TOURNAMENT_SHEET_ID_A != '') {
+                    setTnmSheet('A', process.env.TOURNAMENT_SHEET_ID_A).then( function(value) {
+                        console.log(value);
+                        message.channel.send(value);
+                    });
+                }
+                if(process.env.TOURNAMENT_SHEET_ID_B != '') {
+                    setTnmSheet('B', process.env.TOURNAMENT_SHEET_ID_B).then( function(value) {
+                        console.log(value);
+                        message.channel.send(value);
+                    });
+                }
+                if(process.env.TOURNAMENT_SHEET_ID_C != '') {
+                    setTnmSheet('C', process.env.TOURNAMENT_SHEET_ID_C).then( function(value) {
+                        console.log(value);
+                        message.channel.send(value);
+                    });
+                }
+                if(process.env.TOURNAMENT_SHEET_ID_D != '') {
+                    setTnmSheet('D', process.env.TOURNAMENT_SHEET_ID_D).then( function(value) {
+                        console.log(value);
+                        message.channel.send(value);
+                    });
+                }
+            }
         }
 
-        console.log(globalThis.TOURNAMENT_ID);
-
-        if(!globalThis.TOURNAMENT_ID['A']) {
-            if(process.env.TOURNAMENT_SHEET_ID_A != '') {
-                setTnmSheet('A', process.env.TOURNAMENT_SHEET_ID_A).then( function(value) {
-                    console.log(value);
-                });
-            }
-            if(process.env.TOURNAMENT_SHEET_ID_B != '') {
-                setTnmSheet('B', tnprocess.env.TOURNAMENT_SHEET_ID_B).then( function(value) {
-                    console.log(value);
-                });
-            }
-            if(process.env.TOURNAMENT_SHEET_ID_C != '') {
-                setTnmSheet('C', process.env.TOURNAMENT_SHEET_ID_C).then( function(value) {
-                    console.log(value);
-                });
-            }
-            if(process.env.TOURNAMENT_SHEET_ID_D != '') {
-                setTnmSheet('D', process.env.TOURNAMENT_SHEET_ID_D).then( function(value) {
-                    console.log(value);
-                });
-            }
-        }
-
-        var pattern = /^card [A-D] [0-9] [0-9]$/;
+        // パターン `get A1-1 A2-2`などに対応 一度に3チーム以上の取得は不可 別ブロックの取得は不可 
+        var pattern = /^get ([A-D])([1-9]|1[0-6])-[1-4]( \1([1-9]|1[0-6])-[1-4]){0,1}$/;
         if(message.content.match(pattern)) {
             var items = message.content.split(' ');
-            getMatchCard(items[1], parseInt(items[2]), parseInt(items[3])).then( function(value) {
+            getMatchCard(items[1], items[2] ?? null).then( function(value) {
                 // 非同期処理が成功した場合
                 message.channel.send(value);
             });
@@ -131,10 +168,10 @@ client.on(Events.MessageCreate, message => {
 client.login(process.env.DISCORD_TOKEN)
 
 /*
+ * 申請リストを取得する
  * 
- * 
- * 
- * 
+ * @param string id
+ * @return string
  */
 async function setAppSheet(id) {
     const creds = require(process.env.API_KEY_JSON); // ダウンロードしたJSON
@@ -146,20 +183,24 @@ async function setAppSheet(id) {
     const appData = await appDoc.sheetsByTitle['申請'];
     const appDatas = await appData.getRows();
 
+    // 申請リストのヘッダー
+    headerValues = appData.headerValues;
+
     appDatas.forEach(function(item) {
-        if(item._rawData[0]) {
-            globalThis.APPLICAATION_LIST.push(item._rawData);
+        if(item._rawData[headerValues.indexOf('タイムスタンプ')]) {
+            APPLICAATION_LIST.push(item._rawData);
         }
     });
-    console.log('チーム数：' + globalThis.APPLICAATION_LIST.length);
+    console.log(APPLICAATION_LIST);
+    console.log('チーム数：' + APPLICAATION_LIST.length);
     return appDoc.title;
 }
 
 /*
+ * 対戦表のIDを配列にセットする
  * 
- * 
- * 
- * 
+ * @param string id
+ * @return string
  */
 async function setTnmSheet(block, id) {
     const creds = require(process.env.API_KEY_JSON); // ダウンロードしたJSON
@@ -168,116 +209,140 @@ async function setTnmSheet(block, id) {
     await Tnmdoc.loadInfo();
 
     // ブロック変数にIDを格納
-    globalThis.TOURNAMENT_ID[block] = id;
+    TOURNAMENT_ID[block] = id;
     return Tnmdoc.title;
 }
 
 /*
+ * 対戦表のチーム番号からチーム情報を取得する
  * 
- * 
- * 
- * 
+ * @param string teamA
+ * @param string teamB
+ * @return string
  */
-async function getMatchCard(block, round, match) {
+async function getMatchCard(teamA, teamB = null) {
+    const block = teamA.substring(0,1);
     const creds = require(process.env.API_KEY_JSON); // ダウンロードしたJSON
-    const getDoc = new GoogleSpreadsheet(globalThis.TOURNAMENT_ID[block]);
+    const getDoc = new GoogleSpreadsheet(TOURNAMENT_ID[block]);
     await getDoc.useServiceAccountAuth(creds);
     await getDoc.loadInfo();
 
-    switch(round) {
-        case 1:
-            var startColumn = 0;
-            var range = 'A:D';
-            break;
-        case 2:
-            var startColumn = 6;
-            var range = 'G:J';
-            break;
-        case 3:
-            var startColumn = 12;
-            var range = 'M:P';
-            break;
-        case 4:
-            var startColumn = 18;
-            var range = 'S:V';
-            break;
-        case 5:
-            var startColumn = 24;
-            var range = 'Y:AB';
-            break;
-    }
+    const teamName = headerValues.indexOf('チーム名')
+    const teamNameKana = headerValues.indexOf('チーム名のフリガナ')
+    const memberName1 = headerValues.indexOf('プレイヤー名(代表者)')
+    const memberName2 = headerValues.indexOf('プレイヤー名(Player2)')
+    const memberName3 = headerValues.indexOf('プレイヤー名(Player3)')
+    const memberName4 = headerValues.indexOf('プレイヤー名(Player4)')
+    const teamComment = headerValues.indexOf('コメントや意気込みなど')
 
-    //トーナメント情報を取得
-    const sheetTournament = await getDoc.sheetsByTitle['トーナメント'];
-    await sheetTournament.loadCells(range);
+    try{
+        //トーナメント情報を取得
+        const sheetTournament = await getDoc.sheetsByTitle['チーム一覧'];
+        await sheetTournament.loadCells('B:F');
 
-    var teamA = [];
-    var teamB = [];
-
-    var roundOneRows = [];
-
-    for(var i=0;i<sheetTournament.rowCount;i++) {
-        
-        if(sheetTournament.getCell(i, startColumn).value !== null) {
-            roundOneRows.push({'row': i, 'number': sheetTournament.getCell(i, startColumn).value, 'team': sheetTournament.getCell(i, startColumn + 1).value});
-        }
-        if(i > 84) {
-            break;
-        }
-    }
-
-    var skip = false;
-
-    await roundOneRows.forEach(function(item, index) {
-        if(item.number.indexOf('観戦') > 0) {
-            if(!skip) {
-                teamA.push(roundOneRows[index + 1]);
-                if(roundOneRows.length >= index + 3) {
-                    if(roundOneRows[index + 2].number.indexOf('観戦') > 0) {
-                        teamB.push(roundOneRows[index + 3]);
-                        skip = true;
-                    } else {
-                        teamB.push(roundOneRows[index + 2]);
-                    }
+        // Aチームの情報取得
+        var teamAInfo = await getTeamInfo(teamA);
+        for(var i=0;i<sheetTournament.rowCount;i++) {
+            // row: i , column: 1(B列), 4(E列)
+            if(sheetTournament.getCell(i, 1).value == teamAInfo['blockNum']) {
+                if(sheetTournament.getCell(i, 4).value == teamAInfo['rank']) {
+                    teamAInfo['teamName'] = sheetTournament.getCell(i, 5).value
+                    break;
                 }
-            } else {
-                skip = false;
             }
         }
-    });
+        if(!teamAInfo['teamName']) {
+            return teamAInfo['blockNum'] + '-' + teamAInfo['rank'] + 'チームが確定していません';
+        }
 
-    try {
-        var teamAList = globalThis.APPLICAATION_LIST.filter(function(item) {
-            return item[1] == teamA[match - 1].team;
+        console.log(teamAInfo);
+
+        var teamAList = APPLICAATION_LIST.filter(function(item) {
+            return item[teamName] == teamAInfo['teamName'];
         })[0];
 
-        var teamBList = globalThis.APPLICAATION_LIST.filter(function(item) {
-            return item[1] == teamB[match - 1].team;
-        })[0];
-
+        // Bチームが指定されていれば情報取得
+        if(teamB != null) {
+            var teamBInfo = await getTeamInfo(teamB);
+            for(var i=0;i<sheetTournament.rowCount;i++) {
+                // row: i , column: 1(B列), 4(E列)
+                if(sheetTournament.getCell(i, 1).value == teamBInfo['blockNum']) {
+                    if(sheetTournament.getCell(i, 4).value == teamBInfo['rank']) {
+                        teamBInfo['teamName'] = sheetTournament.getCell(i, 5).value
+                        break;
+                    }
+                }
+            }
+            if(!teamBInfo['teamName']) {
+                return teamBInfo['blockNum'] + '-' + teamBInfo['rank'] + 'チームが確定していません';
+            }
+            var teamBList = APPLICAATION_LIST.filter(function(item) {
+                return item[teamName] == teamBInfo['teamName'];
+            })[0];
+        }
+        console.log(teamAList);
         var card = "-------------------------------------------------\n"
-        + block + "ブロック　" + round + "回戦\n"
-        + teamA[match - 1].number + "「" + teamAList[1] + "」vs\n"
-        + teamB[match - 1].number + "「" + teamBList[1] + "」\n\n"
+        + "\n"
+        + teamAInfo['blockNum'] + '-' + teamAInfo['rank'] + "「" + teamAList[teamName] + "」" 
         
-        + "（" + teamAList[2] + "）\n"
-        + "「" + teamAList[1] + "」\n"
-        + teamAList[4] + "\n"
-        + teamAList[6] + "\n"
-        + teamAList[8] + "\n"
-        + teamAList[10] + "\n"
-        + "コメント：" + (teamAList[12] != "" ? teamAList[12] : "(無し)" ) + "\n\n"
+        if(teamB != null) {
+            card = card + "vs\n"
+            + teamBInfo['blockNum'] + '-' + teamBInfo['rank'] + "「" + teamBList[teamName] + "」\n\n"
+        } else {
+            card = card + "\n\n"
+        }
+
+        card = card + "（" + teamAList[teamNameKana] + "）\n"
+        + "「" + teamAList[teamName] + "」\n"
+        + teamAList[memberName1] + "\n"
+        + teamAList[memberName2] + "\n"
+        + teamAList[memberName3] + "\n"
+        + teamAList[memberName4] + "\n"
+        + "コメント：" + (teamAList[teamComment] != "" ? teamAList[teamComment] : "(無し)" ) + "\n\n"
         
-        + "（" + teamBList[2] + "）\n"
-        + "「" + teamBList[1] + "」\n"
-        + teamBList[4] + "\n"
-        + teamBList[6] + "\n"
-        + teamBList[8] + "\n"
-        + teamBList[10] + "\n"
-        + "コメント：" + (teamBList[12] != "" ? teamBList[12] : "(無し)" ) + "\n"
-        + "------------------------------------------------";
+        if(teamB != null) {
+            card = card + "（" + teamBList[teamNameKana] + "）\n"
+            + "「" + teamBList[teamName] + "」\n"
+            + teamBList[memberName1] + "\n"
+            + teamBList[memberName2] + "\n"
+            + teamBList[memberName3] + "\n"
+            + teamBList[memberName4] + "\n"
+            + "コメント：" + (teamBList[teamComment] != "" ? teamBList[teamComment] : "(無し)" ) + "\n"
+        }
+        card = card + "------------------------------------------------";
         return card;
     } catch (error) {
         console.error(error);
     }
+}
+
+/*
+ * チーム番号から情報を取得する
+ * 
+ * @param string team
+ * @return array
+ */
+async function getTeamInfo(team) {
+    // 本選進出番号 
+    var rank = '';
+    // ブロック
+    var blockNum = team.substring(0, team.indexOf('-'));
+    switch (team.substring(team.length-1, team.length)) {
+        case '1':
+            rank = '①';
+            break;
+        case '2':
+            rank = '②';
+            break;
+        case '3':
+            rank = '③';
+            break;
+        case '4':
+            rank = '④';
+            break;
+    }
+    return {
+        'rank': rank,
+        'blockNum': blockNum
+    };
 }
